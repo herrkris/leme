@@ -32,7 +32,7 @@
 
     -q, --quiet          Output as little as possible, overrides verbose
 
-    -V, --verbose        Verbose output`
+    -V, --verbose        Verbose output
 
 # Author
    Kristof Dreier <kontakt@kristofdreier.de>  
