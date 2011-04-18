@@ -36,7 +36,7 @@
 
 # Author
    Kristof Dreier <kontakt@kristofdreier.de>  
-   Vito Pasquariello <vito.pasquariello@mtu.com>
+   Vito Pasquariello <vito.p@gmx.de>
 
 # Copyright
    Copyright (c) 20011 Kristof Dreier & Vito Pasquariello.  
