@@ -16,23 +16,23 @@
    For help use: `leme -h`
 
 # Options
-`-p, --parameter      Defines over which parameter the programm should iterate
+    -p, --parameter      Defines over which parameter the programm should iterate
 
--s, --start NUM      Number from where to start the iteration
+    -s, --start NUM      Number from where to start the iteration
 
--e, --end NUM        Numbere where to stop the iteration
+    -e, --end NUM        Numbere where to stop the iteration
 
--S, --steps NUM      Iteration steps
+    -S, --steps NUM      Iteration steps
 
--c, --calculix FILE  Specifies the CalculiX binary
+    -c, --calculix FILE  Specifies the CalculiX binary
 
--h, --help           Displays help message
+    -h, --help           Displays help message
 
--v, --version        Display the version, then exit
+    -v, --version        Display the version, then exit
 
--q, --quiet          Output as little as possible, overrides verbose
+    -q, --quiet          Output as little as possible, overrides verbose
 
--V, --verbose        Verbose output`
+    -V, --verbose        Verbose output`
 
 # Author
    Kristof Dreier <kontakt@kristofdreier.de>  
