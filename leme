@@ -1,0 +1,335 @@
+#!/usr/bin/env ruby 
+
+# == Synopsis 
+#   This program parses a funny file, calls calculix and maps the output to the given parameters.
+#
+# == Examples
+#   This command iterates over the parameters in the given file and maps them to the output file.
+#     leme input.dat output.dat
+#
+#   Other examples:
+#     leme -p gap -s 0 -e 8 -S 0.25 output.dat
+#
+# == Usage 
+#   leme [options] [input.dat] output.dat
+#
+#   For help use: leme -h
+#
+# == Options
+#   -p, --parameter      Defines over which parameter the programm should iterate
+#   -s, --start NUM      Number from where to start the iteration
+#   -e, --end NUM        Numbere where to stop the iteration
+#   -S, --steps NUM      Iteration steps
+#   -c, --calculix FILE  Specifies the CalculiX binary
+#   -h, --help           Displays help message
+#   -v, --version        Display the version, then exit
+#   -q, --quiet          Output as little as possible, overrides verbose
+#   -V, --verbose        Verbose output
+#
+# == Author
+#   Kristof Dreier <kontakt@kristofdreier.de>
+#   Vito Pasquariello <vito.pasquariello@mtu.com>
+#
+# == Copyright
+#   Copyright (c) 20011 Kristof Dreier & Vito Pasquariello. Licensed under the MIT License:
+#   http://www.opensource.org/licenses/mit-license.php
+
+require 'optparse' 
+require 'rdoc/usage'
+require 'ostruct'
+require 'date'
+require 'bigdecimal'
+
+class App
+  VERSION = '0.0.1'
+  
+  attr_reader :options
+
+  def initialize(arguments, stdin)
+    @arguments = arguments
+    @stdin = stdin
+    
+    # Set defaults
+    @options = OpenStruct.new
+    @options.verbose = false
+    @options.quiet = false
+    @options.calculix = "/usr/local/CalculiX/ccx_2.2/src/ccx_2.2"
+    
+    @allowed_parameters = { :gap => "mm", :temperature => "K", :inlet_pressure => "bar", :pressure_ratio => "" }
+  end
+
+  # Parse options, check arguments, then process the command
+  def run
+    if parsed_options? && arguments_valid? 
+      puts "Start at #{DateTime.now}\
+      \
+" if @options.verbose     
+      output_options if @options.verbose # [Optional]
+            
+      process_arguments            
+      process_command
+      
+      puts "\
+Finished at #{DateTime.now}" if @options.verbose
+      
+    else
+      output_usage
+    end
+      
+  end
+  
+  protected
+  
+    def parsed_options?
+      
+      # Specify options
+      opts = OptionParser.new 
+      opts.on('-v', '--version')    { output_version ; exit 0 }
+      opts.on('-h', '--help')       { output_help }
+      opts.on('-V', '--verbose')    { @options.verbose = true }  
+      opts.on('-q', '--quiet')      { @options.quiet = true }
+      opts.on('-s', '--start NUM') do |f| @options.start = BigDecimal(f) end
+      opts.on('-e', '--end NUM') do |f| @options.end = BigDecimal(f) end
+      opts.on('-S', '--steps NUM') do |f| @options.steps = BigDecimal(f) end
+      opts.on('-c', '--calculix FILE') do |f| @options.calculix = f end        
+      opts.on('-p', '--parameter OPT', @allowed_parameters.keys) do |f| @options.parameter = f end
+            
+      opts.parse!(@arguments) rescue return false
+      
+      process_options
+      true      
+    end
+
+    # Performs post-parse processing on options
+    def process_options
+      @options.verbose = false if @options.quiet
+    end
+    
+    def output_options
+      puts "Options:\
+"
+      
+      @options.marshal_dump.each do |name, val|        
+        puts "  #{name} = #{val}"
+      end
+    end
+
+    # True if required arguments were provided
+    def arguments_valid?
+      if !@options.parameter.nil? && !@options.start.nil? && !@options.end.nil? && !@options.steps.nil? && @arguments.length == 1
+        true
+      elsif @arguments.length == 2
+        true
+      else
+        false
+      end
+    end
+    
+    # Setup the arguments
+    def process_arguments
+      if @arguments.length == 2
+        @options.output = @arguments.pop
+        @options.input = @arguments.pop
+      else
+        @options.output = @arguments.pop
+      end
+    end
+    
+    def output_help
+      output_version
+      RDoc::usage() #exits app
+    end
+    
+    def output_usage
+      RDoc::usage('usage') # gets usage from comments above
+    end
+    
+    def output_version
+      puts "#{File.basename(__FILE__)} version #{VERSION}"
+    end
+    
+    def process_command
+      parameters = []
+      counter = 1
+      template_vars = {}
+      
+      if @options.parameter.nil?
+        puts "Setting iteration values from file" if @options.verbose
+        parameters = read_file_into_array(@options.input)        
+      else
+        puts "Setting iteration values from paramters" if @options.verbose
+        iterater = @options.start
+        while iterater <= @options.end do
+          parameters << iterater
+          iterater = iterater + @options.steps
+        end
+      end
+      puts "Setting iteration parameter to: #{@options.parameter}" if @options.verbose
+      
+      @allowed_parameters.each do |parameter, unit|
+        if parameter != @options.parameter
+          unitString = !unit.empty? ? ' [' + unit + ']' : ''
+          puts "Please enter a default #{parameter.to_s.gsub(/_/, ' ')} value#{unitString}:"
+          template_vars[parameter] = BigDecimal(gets.chomp)
+
+					if parameter == :inlet_pressure
+						template_vars[parameter] = template_vars[parameter] * 100000					
+					end 
+        end
+      end
+            
+      puts "Loading template file" if @options.verbose
+      template_content = template
+      values = []
+      
+      parameters.each do |parameter|
+        parsed_template = template_content
+        template_vars[@options.parameter] = parameter
+				template_vars[:outlet_pressure] = template_vars[:inlet_pressure] / template_vars[:pressure_ratio]
+
+        puts "Replacing template variables with real data" if @options.verbose
+       
+        template_vars.each do |key, value|
+          puts "%#{key}% => #{value.to_s}" if @options.verbose
+          parsed_template = parsed_template.gsub(/%#{key.to_s}%/, value.to_s)
+        end
+        puts "Creating calculix file" if @options.verbose
+        
+        File.open("_leme_tmp.inp", "w") do |f|  
+          f.puts parsed_template
+        end
+        
+        puts "Turning control over to CalculiX" if @options.verbose
+        system("#{@options.calculix} _leme_tmp")
+        puts "Back from CalculiX" if @options.verbose
+        puts "Merging data from CalculiX with our paramter" if @options.verbose
+
+        searched_value = ""
+        file = File.new("_leme_tmp.dat", "r")
+      	file.each_line do |line|
+      	  # TODO remove hardcoded value detection
+          if file.lineno == 4
+            searched_value = line.split(" ")[1].chomp.strip
+          end
+      	end
+      	file.close
+        
+        values << "#{parameter}\t#{searched_value}"
+        
+        puts "" if @options.verbose
+      end
+      
+      File.open(@options.output, "w") do |f|  
+        f.puts values.join("\n")
+      end
+      
+      puts "Cleaning up" if @options.verbose
+      begin
+        File.unlink("_leme_tmp.inp")
+        File.unlink("_leme_tmp.dat")
+      rescue Errno::ENOENT
+      end
+    end
+    
+    def read_file_into_array(filename)
+      content = []
+      
+      file = File.new(filename, "r")
+    	file.each_line do |line|
+    	  line = line.chomp.strip
+    	  if (file.lineno == 1)
+    	    @options.parameter = line
+  	    else
+    	    content << line
+    	  end
+    	end
+    	file.close
+    	
+    	content
+    end
+    
+    
+    def read_file_into_string(filename)
+      content = ""
+      
+      file = File.new(filename, "r")
+    	file.each_line do |line|
+    	  line = line.chomp.strip
+        content += line + "\n"
+    	end
+    	file.close
+    	
+    	content
+    end
+
+		def template
+content = <<TEMPLATE
+*HEADING
+Strömung durch ein Durchblicklabyrinth
+mit 15 Fins
+Einheiten: K, mm, g, s
+
+*********************************************
+**********  Definition der Knoten  **********
+*********************************************
+*NODE,NSET=NALL
+1, 1, 0, 0
+2, 2, 0, 0
+3, 3, 0, 0
+4, 4, 0, 0
+5, 5, 0, 0
+
+*********************************************
+******  Definition der Fluidelemente  *******
+*********************************************
+*ELEMENT, TYPE=D,ELSET=INLET
+1, 0, 1, 2
+*ELEMENT, TYPE=D,ELSET=LAB
+2, 2, 3, 4
+*ELEMENT, TYPE=D,ELSET=OUTLET
+3, 4, 5, 0	
+
+*********************************************
+****  Definition der Stoffdaten (Luft)  *****
+*********************************************
+*MATERIAL,NAME=LUFT
+*SPECIFIC GAS CONSTANT
+287.15E6
+*DENSITY
+1.20521785E-6
+*FLUID CONSTANTS
+1.0068245125E9,18.232139125E-6,293.15
+
+*********************************************
+*****  Eigenschaften der Fluidelemente ******
+*********************************************
+*FLUID SECTION,ELSET=INLET,MATERIAL=LUFT
+*FLUID SECTION,ELSET=LAB,TYPE=LABYRINTHSTRAIGHT,MATERIAL=LUFT
+3.1,%gap%,62.85,15,0.5,3.8,0,0.,0.0,
+0,0
+*FLUID SECTION,ELSET=OUTLET,MATERIAL=LUFT
+
+
+*********************************************
+******  Definition des Belastungsfalls ******
+*********************************************
+*STEP,INC=100
+*HEAT TRANSFER,STEADY STATE
+1.,1.
+
+*BOUNDARY
+2,0,0,%temperature%
+2,2,2,%inlet_pressure%
+4,0,0,%temperature%
+4,2,2,%outlet_pressure%
+
+*NODE PRINT, NSET=NALL
+U,NT
+*END STEP
+TEMPLATE
+		end
+end
+
+# Create and run the application
+app = App.new(ARGV, STDIN)
+app.run
